@@ -1,0 +1,104 @@
+# =============================================================================
+# DRUG RESPONSE PREDICTION PIPELINE CONFIGURATION
+# =============================================================================
+
+# Configuration identifier (used for output directory naming)
+config_name: "default"
+
+# Global settings
+global:
+  seed: 42
+  threads: 8
+  num_workers: 4
+  device: "auto"  # auto, cuda, cpu
+
+# Input data paths
+data:
+  drug_data: "/home/teddy/local/AMLVAE/data/beataml_probit_curve_fits_v4_distr.txt"
+  clinical_data: "/home/teddy/local/AMLVAE/data/beataml_clinical_for_inputs.csv"
+  targetome_data: "/home/teddy/local/data/targetome_extended-01-23-25.csv"
+  drug_meta: "../../data/beataml_drugs_for_targetome.csv"
+  reactome_data: "../../data/UniProt2Reactome.txt"
+  expression_data: "/home/teddy/local/AMLVAE/data/aml_full_manuscript.csv"
+
+# Graph construction parameters
+graph:
+  # Response normalization method
+  resp_norm: "zscore"  # zscore, unit_norm, within_drug_zscore, none
+  
+  # Graph structure parameters
+  graph_depth: 3
+  min_pathway_size: 25
+  max_assay_value: 1000.0
+  include_mirna: false  # include miRNA nodes/edges in biological graph
+  include_extra: false  # include extra biological edges
+  
+  # Expression data processing
+  expr_n_top_genes: 2000  # select top N most variable genes (takes precedence over expr_var_threshold)
+  expr_var_threshold: 0.1  # select genes above this variance quantile threshold
+  expr_norm: "rank_inv_normal"  # unit_norm, zscore, robust_z, winsorized_z, winsorized_unit_norm, quantile, rank_inv_normal
+  expr_clip_quantiles: [0.02, 0.98]  # quantiles for winsorized normalization
+  expr_normalizer_save_path: null  # path to save fitted normalizer (optional)
+  
+  # Train/validation split (test set uses priorMDS logic)
+  train_frac: 0.9
+
+# Neural Network (baseline) parameters
+nn:
+  # Architecture
+  hidden_channels: 1024
+  layers: 4
+  dropout: 0.05
+  nonlin: "ELU"  # ELU, ReLU, LeakyReLU, GELU
+  norm: "batch"  # batch, layer, none
+  out_activation: "none"  # none, sigmoid, tanh
+  
+  # Training hyperparameters
+  lr: 0.0001
+  weight_decay: 0.01
+  batch_size: 256
+  epochs: 100
+  patience: 10
+  min_delta: 0.0001
+
+# Graph Structured Neural Network (GSNN) parameters
+gsnn:
+  # Architecture
+  channels: 3
+  layers: 5
+  dropout: 0.0
+  nonlin: "GELU"  # ELU, ReLU, LeakyReLU, GELU
+  norm: "batch"  # batch, layer, none
+  
+  # GSNN-specific parameters
+  bias: true
+  node_attn: false
+  share_layers: false
+  add_function_self_edges: true
+  init: "kaiming_normal"  # xavier_normal, xavier_uniform, kaiming_normal, kaiming_uniform
+  residual: true
+  checkpoint: true
+  
+  # Training hyperparameters
+  lr: 0.001
+  weight_decay: 0.01
+  batch_size: 256
+  epochs: 20
+  patience: 10
+  min_delta: 0.0001
+
+# Resource allocation
+resources:
+  make_graph:
+    memory: 16000  # MB
+    runtime: 10   # minutes
+    
+  train_nn:
+    memory: 8000   # MB
+    runtime: 30   # minutes
+    gpu: 1
+    
+  train_gsnn:
+    memory: 32000  # MB
+    runtime: 180   # minutes
+    gpu: 1 

@@ -1,0 +1,24 @@
+name: gsnn-mds
+channels:
+  - pytorch
+  - pyg
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python
+  - pandas
+  - numpy
+  - pytorch
+  - pyg
+  - networkx
+  - scikit-learn
+  - scipy
+  - snakemake
+  - matplotlib
+  - seaborn
+  - joblib
+  - pip
+  - pip:
+      - pypath-omnipath
+      - omnipath

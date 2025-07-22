@@ -1,0 +1,99 @@
+# =============================================================================
+# DRUG RESPONSE PREDICTION PIPELINE CONFIGURATION
+# =============================================================================
+
+# Configuration identifier (used for output directory naming)
+config_name: "main_experiment"
+
+# Global settings
+global:
+  seed: 42
+  threads: 8
+  num_workers: 4
+  device: "auto"  # auto, cuda, cpu
+
+# Input data paths
+data:
+  drug_data: "/home/teddy/local/AMLVAE/data/beataml_probit_curve_fits_v4_distr.txt"
+  clinical_data: "/home/teddy/local/AMLVAE/data/beataml_clinical_for_inputs.csv"
+  targetome_data: "/home/teddy/local/data/targetome_extended-01-23-25.csv"
+  drug_meta: "../../data/beataml_drugs_for_targetome.csv"
+  reactome_data: "../../data/UniProt2Reactome.txt"
+  expression_data: "/home/teddy/local/AMLVAE/data/aml_full_manuscript.csv"
+
+# Graph construction parameters
+graph:
+  # Response normalization method
+  resp_norm: "zscore"  # zscore, unit_norm, within_drug_zscore, none
+  
+  # Graph structure parameters
+  graph_depth: 5
+  min_pathway_size: 25
+  max_assay_value: 1000.0
+  
+  # Expression data processing
+  expr_var_quantile: 0.1
+  expr_norm: "unit_norm"  # unit_norm, zscore
+  
+  # Train/validation split (test set uses MDS logic)
+  train_frac: 0.85
+
+# Neural Network (baseline) parameters
+nn:
+  # Architecture
+  hidden_channels: 1024
+  layers: 4
+  dropout: 0.05
+  nonlin: "ELU"  # ELU, ReLU, LeakyReLU, GELU
+  norm: "batch"  # batch, layer, none
+  out_activation: "none"  # none, sigmoid, tanh
+  
+  # Training hyperparameters
+  lr: 0.0001
+  weight_decay: 0.01
+  batch_size: 256
+  epochs: 100
+  patience: 10
+  min_delta: 0.0001
+
+# Graph Structured Neural Network (GSNN) parameters
+gsnn:
+  # Architecture
+  channels: 5
+  layers: 8
+  dropout: 0.05
+  nonlin: "ELU"  # ELU, ReLU, LeakyReLU, GELU
+  norm: "batch"  # batch, layer, none
+  
+  # GSNN-specific parameters
+  bias: true
+  node_attn: true
+  share_layers: false
+  add_function_self_edges: true
+  init: "xavier_normal"  # xavier_normal, xavier_uniform, kaiming_normal, kaiming_uniform
+  residual: true
+  checkpoint: true
+  
+  # Training hyperparameters
+  lr: 0.001
+  weight_decay: 0.01
+  batch_size: 256
+  epochs: 100
+  patience: 10
+  min_delta: 0.0001
+
+# Resource allocation
+resources:
+  make_graph:
+    memory: 16000  # MB
+    runtime: 180   # minutes
+    
+  train_nn:
+    memory: 8000   # MB
+    runtime: 120   # minutes
+    gpu: 1
+    
+  train_gsnn:
+    memory: 12000  # MB
+    runtime: 180   # minutes
+    gpu: 1 

@@ -1,3 +1,9 @@
+/proc/
+/workflow/exp/ 
+/results/ 
+workflow/.snakemake/
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

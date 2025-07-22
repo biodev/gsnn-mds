@@ -1,0 +1,90 @@
+# =============================================================================
+# TEST CONFIGURATION - FASTER EXECUTION FOR DEVELOPMENT
+# =============================================================================
+
+# Configuration identifier (used for output directory naming)
+config_name: "test_experiment"
+
+# Global settings
+global:
+  seed: 42
+  threads: 4
+  num_workers: 2
+  device: "auto"  # auto, cuda, cpu
+
+# Input data paths (same as main config)
+data:
+  drug_data: "/home/teddy/local/AMLVAE/data/beataml_probit_curve_fits_v4_distr.txt"
+  clinical_data: "/home/teddy/local/AMLVAE/data/beataml_clinical_for_inputs.csv"
+  targetome_data: "/home/teddy/local/data/targetome_extended-01-23-25.csv"
+  drug_meta: "../../data/beataml_drugs_for_targetome.csv"
+  reactome_data: "../../data/UniProt2Reactome.txt"
+  expression_data: "/home/teddy/local/AMLVAE/data/aml_full_manuscript.csv"
+
+# Graph construction parameters (smaller for faster testing)
+graph:
+  resp_norm: "zscore"
+  graph_depth: 3  # Reduced from 5
+  min_pathway_size: 15  # Reduced from 25
+  max_assay_value: 1000.0
+  expr_var_quantile: 0.2  # More restrictive to reduce features
+  expr_norm: "unit_norm"
+  train_frac: 0.85
+
+# Neural Network parameters (smaller for faster training)
+nn:
+  hidden_channels: 256  # Reduced from 1024
+  layers: 2  # Reduced from 4
+  dropout: 0.05
+  nonlin: "ELU"
+  norm: "batch"
+  out_activation: "none"
+  
+  # Faster training
+  lr: 0.001  # Higher learning rate
+  weight_decay: 0.01
+  batch_size: 128  # Smaller batch size
+  epochs: 20  # Much fewer epochs
+  patience: 5  # Reduced patience
+  min_delta: 0.001
+
+# GSNN parameters (smaller for faster training)
+gsnn:
+  channels: 3  # Reduced from 5
+  layers: 4  # Reduced from 8
+  dropout: 0.05
+  nonlin: "ELU"
+  norm: "batch"
+  
+  # GSNN-specific parameters
+  bias: true
+  node_attn: true
+  share_layers: false
+  add_function_self_edges: true
+  init: "xavier_normal"
+  residual: true
+  checkpoint: true
+  
+  # Faster training
+  lr: 0.001
+  weight_decay: 0.01
+  batch_size: 128  # Smaller batch size
+  epochs: 20  # Much fewer epochs
+  patience: 5  # Reduced patience
+  min_delta: 0.001
+
+# Reduced resource allocation for testing
+resources:
+  make_graph:
+    memory: 8000   # Reduced from 16000 MB
+    runtime: 60    # Reduced from 180 minutes
+    
+  train_nn:
+    memory: 4000   # Reduced from 8000 MB
+    runtime: 30    # Reduced from 120 minutes
+    gpu: 1
+    
+  train_gsnn:
+    memory: 6000   # Reduced from 12000 MB
+    runtime: 45    # Reduced from 180 minutes
+    gpu: 1 
