@@ -30,6 +30,7 @@ graph:
   include_extra: false  # include extra biological edges
   
   # Expression data processing
+  include_expr: true  # include expression data as input to the model (default: True)
   expr_n_top_genes: 2500  # select top N most variable genes (takes precedence over expr_var_threshold)
   expr_var_threshold: 0.1  # select genes above this variance quantile threshold
   expr_norm: "rank_inv_normal"  # unit_norm, zscore, robust_z, winsorized_z, winsorized_unit_norm, quantile, rank_inv_normal
@@ -53,7 +54,7 @@ nn:
   out_activation: "none"  # none, sigmoid, tanh
   
   # Training hyperparameters
-  lr: 0.0005
+  lr: 0.001
   weight_decay: 0.01
   batch_size: 256
   epochs: 100

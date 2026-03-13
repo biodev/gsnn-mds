@@ -53,7 +53,9 @@ rule make_graph:
         expr_normalizer_save_path_flag=f"--expr-normalizer-save-path {config['graph']['expr_normalizer_save_path']}" if config["graph"]["expr_normalizer_save_path"] is not None else "",
         include_mirna=str(config["graph"]["include_mirna"]).lower(),
         include_extra=str(config["graph"]["include_extra"]).lower(),
-        include_mut=str(config["graph"]["include_mut"]).lower()
+        include_mut=str(config["graph"]["include_mut"]).lower(),
+        include_expr=str(config["graph"]["include_expr"]).lower()
+
     threads: config["global"]["threads"]
     resources:
         mem_mb=config["resources"]["make_graph"]["memory"],
@@ -77,7 +79,8 @@ rule make_graph:
             {params.expr_normalizer_save_path_flag} \
             --include-mirna {params.include_mirna} \
             --include-extra {params.include_extra} \
-            --include-mut {params.include_mut}
+            --include-mut {params.include_mut} \
+            --include-expr {params.include_expr}
         """
 
 # Rule to train standard Neural Network

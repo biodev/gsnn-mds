@@ -13,9 +13,9 @@ from gsnn_mds.proc.ExpressionNormalizer import ExpressionNormalizer
 
 
 def load_mut(root): 
-    aml_mut1 = pd.read_csv(f'{root}/evansmds/mut/aml_train.csv')
-    aml_mut2 = pd.read_csv(f'{root}/evansmds/mut/aml_test.csv')
-    aml_mut3 = pd.read_csv(f'{root}/evansmds/mut/aml_validation.csv')
+    aml_mut1 = pd.read_csv(f'{root}/mut/aml_train.csv')
+    aml_mut2 = pd.read_csv(f'{root}/mut/aml_test.csv')
+    aml_mut3 = pd.read_csv(f'{root}/mut/aml_validation.csv')
     aml_mut = pd.concat([aml_mut1, aml_mut2, aml_mut3])
     #aml_mut = aml_mut.rename(columns={'dbgap_dnaseq_sample':'sample_id'})
     clin = pd.read_csv(f'{root}/beataml_clinical_for_inputs.csv')[['gdc_id', 'dbgap_dnaseq_sample']].dropna().rename(columns={'gdc_id':'sample_id'}) 
@@ -25,11 +25,12 @@ def load_mut(root):
     aml_mut = aml_mut.fillna(0)
     aml_features = aml_mut.columns[1:].tolist() 
 
-    mds_mut = pd.read_excel(f'{root}/evansmds/mut/805_data_20250107.xlsx')
+    mds_mut = pd.read_excel(f'{root}/mut/805_data_20250107.xlsx')
     mds_features = mds_mut.columns[60:].tolist() 
     mds_mut = mds_mut.rename(columns={'MLL ID':'sample_id'})
     
     # fill na and convert "NEGATIVE" to 0 and "POSITIVE" to 1 
+    pd.set_option('future.no_silent_downcasting', True)
     mds_mut = mds_mut.fillna(0)
     mds_mut = mds_mut.replace('NEGATIVE', 0)
     mds_mut = mds_mut.replace('POSITIVE', 1) 
@@ -474,9 +475,10 @@ def construct_final_graph(dti_df, bio_df, path_df, omics_df, drugspace, pathspac
     print(f"Node sets - Input: {len(input_nodes)}, "
           f"Function: {len(function_nodes)}, Output: {len(output_nodes)}")
 
-    inputs_df = omics_df.assign(**{d:0 for d in drugspace_final})
+    drug_df_ = pd.DataFrame({d:np.zeros(len(omics_df)) for d in drugspace_final})
+    inputs_df = pd.concat([omics_df, drug_df_], axis=1)
     inputs_df = inputs_df[input_nodes].fillna(0) 
-    
+
     # Return mutation data along with other outputs
     return G, input_nodes, function_nodes, output_nodes, drugspace_final, inputs_df
 

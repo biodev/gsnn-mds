@@ -96,6 +96,8 @@ def parse_args():
 
     parser.add_argument('--include-mut', type=lambda x: (str(x).lower() in ['true','1','yes','t']), default=True,
                       help='Include mutation features (default: True)')
+    parser.add_argument('--include-expr', type=lambda x: (str(x).lower() in ['true','1','yes','t']), default=True,
+                      help='Include expression data (default: True)')
 
     return parser.parse_args()
 
@@ -166,23 +168,28 @@ def main():
     # Combine pathspaces (reactome + van galen)
     pathspace = np.concatenate([path_df.target.unique(), vg_df.target.unique()])
     
-    # Process expression data
-    expression_data_path = os.path.join(args.data_root, 'aml_full_manuscript.csv')
-    aml_expr, normalizer = process_expression_data(
-        expression_data_path, rnaspace, args.expr_norm,
-        quantile_clip=tuple(args.expr_clip_quantiles),
-        normalizer_save_path=args.expr_normalizer_save_path,
-        n_top_genes=args.expr_n_top_genes,
-        var_threshold=args.expr_var_threshold
-    )
-    
-    # Process MDS expression data using the same normalizer
-    mds_expr_path = os.path.join(args.data_root, '20241219_WTS_Data_Proj805.csv')
-    mds_expr = process_mds_expression_data(
-        mds_expr_path, normalizer, rnaspace
-    )
+    if args.include_expr:
+        print("Processing expression data...")
+        # Process expression data
+        expression_data_path = os.path.join(args.data_root, 'aml_full_manuscript.csv')
+        aml_expr, normalizer = process_expression_data(
+            expression_data_path, rnaspace, args.expr_norm,
+            quantile_clip=tuple(args.expr_clip_quantiles),
+            normalizer_save_path=args.expr_normalizer_save_path,
+            n_top_genes=args.expr_n_top_genes,
+            var_threshold=args.expr_var_threshold
+        )
+        
+        # Process MDS expression data using the same normalizer
+        mds_expr_path = os.path.join(args.data_root, '20241219_WTS_Data_Proj805.csv')
+        mds_expr = process_mds_expression_data(
+            mds_expr_path, normalizer, rnaspace
+        )
 
-    expr = pd.concat([aml_expr, mds_expr])
+        expr = pd.concat([aml_expr, mds_expr])
+    else:
+        print("NOT including expression data...")
+        expr = None
     
     if args.include_mut:
         ## ----------------------------------------------------------------------------
@@ -194,11 +201,20 @@ def main():
         keep_cols = [x for x in mut2.columns if x in protspace]
         mut2 = mut2[keep_cols]
         mut2.columns = ['MUT__' + x for x in mut2.columns]
-        omics_df = expr.merge(mut2, left_index=True, right_index=True)
     ## ---------------------------------------------------------------------------- 
     else: 
         print("NOT including mutation features...")
+        mut = None
+
+    if (expr is not None) and (mut is not None):
+        omics_df = expr.merge(mut2, left_index=True, right_index=True)
+    elif expr is not None:
         omics_df = expr
+    elif mut is not None:
+        omics_df = mut2
+    else:
+        raise ValueError("Neither expression nor mutation data provided - MUST PROVIDE ONE OF THE TWO")
+
     
     # Construct final graph
     G, input_nodes, function_nodes, output_nodes, drugspace_final, inputs_df = construct_final_graph(
