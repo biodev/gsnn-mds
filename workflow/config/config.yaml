@@ -3,7 +3,7 @@
 # =============================================================================
 
 # Configuration identifier (used for output directory naming)
-config_name: "default"
+config_name: "default_003"
 
 # Global settings
 global:
@@ -11,15 +11,11 @@ global:
   threads: 8
   num_workers: 4
   device: "auto"  # auto, cuda, cpu
+  output_dir: "/home/teddy/local/workflow_outputs/gsnn-mds/exp"  # base output directory
 
 # Input data paths
 data:
-  drug_data: "/home/teddy/local/AMLVAE/data/beataml_probit_curve_fits_v4_distr.txt"
-  clinical_data: "/home/teddy/local/AMLVAE/data/beataml_clinical_for_inputs.csv"
-  targetome_data: "/home/teddy/local/data/targetome_extended-01-23-25.csv"
-  drug_meta: "../../data/beataml_drugs_for_targetome.csv"
-  reactome_data: "../../data/UniProt2Reactome.txt"
-  expression_data: "/home/teddy/local/AMLVAE/data/aml_full_manuscript.csv"
+  data_root: "/home/teddy/local/data/evansmds/"
 
 # Graph construction parameters
 graph:
@@ -27,19 +23,22 @@ graph:
   resp_norm: "zscore"  # zscore, unit_norm, within_drug_zscore, none
   
   # Graph structure parameters
-  graph_depth: 3
+  graph_depth: 4
   min_pathway_size: 25
-  max_assay_value: 1000.0
+  max_assay_value: 100.0 # nM
   include_mirna: false  # include miRNA nodes/edges in biological graph
   include_extra: false  # include extra biological edges
   
   # Expression data processing
-  expr_n_top_genes: 2000  # select top N most variable genes (takes precedence over expr_var_threshold)
+  expr_n_top_genes: 2500  # select top N most variable genes (takes precedence over expr_var_threshold)
   expr_var_threshold: 0.1  # select genes above this variance quantile threshold
   expr_norm: "rank_inv_normal"  # unit_norm, zscore, robust_z, winsorized_z, winsorized_unit_norm, quantile, rank_inv_normal
   expr_clip_quantiles: [0.02, 0.98]  # quantiles for winsorized normalization
   expr_normalizer_save_path: null  # path to save fitted normalizer (optional)
   
+  # Mutation data processing 
+  include_mut: true  # include mutation features as input to the model (default: True)
+
   # Train/validation split (test set uses priorMDS logic)
   train_frac: 0.9
 
@@ -48,13 +47,13 @@ nn:
   # Architecture
   hidden_channels: 1024
   layers: 4
-  dropout: 0.05
+  dropout: 0.2
   nonlin: "ELU"  # ELU, ReLU, LeakyReLU, GELU
   norm: "batch"  # batch, layer, none
   out_activation: "none"  # none, sigmoid, tanh
   
   # Training hyperparameters
-  lr: 0.0001
+  lr: 0.0005
   weight_decay: 0.01
   batch_size: 256
   epochs: 100
@@ -65,25 +64,52 @@ nn:
 gsnn:
   # Architecture
   channels: 3
-  layers: 5
-  dropout: 0.0
-  nonlin: "GELU"  # ELU, ReLU, LeakyReLU, GELU
-  norm: "batch"  # batch, layer, none
+  layers: 6
+  dropout: 0.2
+  nonlin: "ELU"  # ELU, ReLU, LeakyReLU, GELU
+  norm: "batch"  # batch, layer, softmax, none
   
   # GSNN-specific parameters
   bias: true
   node_attn: false
   share_layers: false
   add_function_self_edges: true
-  init: "kaiming_normal"  # xavier_normal, xavier_uniform, kaiming_normal, kaiming_uniform
+  init: "degree_normalized"  # xavier_normal, xavier_uniform, kaiming_normal, kaiming_uniform
   residual: true
   checkpoint: true
   
   # Training hyperparameters
-  lr: 0.001
+  lr: 0.0005
   weight_decay: 0.01
   batch_size: 256
-  epochs: 20
+  epochs: 100
+  patience: 5
+  min_delta: 0.0001
+  
+  # Hypernetwork parameters
+  use_hnet: false                # NOTE: cannot use batch norms or checkpointing with hypernetwork
+  hnet_stochastic_channels: 4
+  hnet_width: 64
+
+# Hypernetwork (HNet) parameters - standalone HNet-wrapped NN baseline
+hnet:
+  # Architecture (mirrors nn)
+  hidden_channels: 512
+  layers: 3
+  dropout: 0.
+  nonlin: "ELU"
+  norm: "layer"
+  out_activation: "none"
+  # HNet-specific
+  stochastic_channels: 64
+  hnet_width: 256
+  pz: "bernoulli"  # bernoulli, gaussian
+  samples: 100     # MC samples per forward pass
+  # Training hyperparameters
+  lr: 1e-4
+  weight_decay: 1e-6
+  batch_size: 256
+  epochs: 100
   patience: 10
   min_delta: 0.0001
 
@@ -101,4 +127,9 @@ resources:
   train_gsnn:
     memory: 32000  # MB
     runtime: 180   # minutes
-    gpu: 1 
+    gpu: 1
+
+  train_hnet:
+    memory: 16000  # MB
+    runtime: 60    # minutes
+    gpu: 1

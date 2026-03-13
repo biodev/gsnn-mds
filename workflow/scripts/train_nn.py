@@ -131,32 +131,49 @@ def load_data(data_dir):
     # Load graph structure (for node names)
     data = torch.load(data_dir / 'graph.pt', weights_only=False)
     
-    # Load expression data
-    aml_expr = pd.read_csv(data_dir / 'aml_expr.csv', index_col=0)
-    aml_expr = aml_expr.fillna(0)
+    # Load inputs dataframe (contains both expression and mutation features)
+    inputs_df = pd.read_csv(data_dir / 'inputs.csv', index_col=0)
+    inputs_df = inputs_df.fillna(0)
     
     # Load response data
     drug = pd.read_csv(data_dir / 'resp.csv')
     
     print(f"Loaded graph with {len(data.node_names_dict['input'])} input nodes")
-    print(f"Loaded expression data: {aml_expr.shape[0]} samples x {aml_expr.shape[1]} genes")
+    print(f"Loaded inputs dataframe: {inputs_df.shape[0]} samples x {inputs_df.shape[1]} features")
+    
+    # Count feature types
+    expr_features = [col for col in inputs_df.columns if col.startswith('EXPR__')]
+    mut_features = [col for col in inputs_df.columns if col.startswith('MUT__')]
+    drug_features = [col for col in inputs_df.columns if col.startswith('DRUG__')]
+    
+    print(f"  - Expression features: {len(expr_features)}")
+    print(f"  - Mutation features: {len(mut_features)}")
+    print(f"  - Drug features: {len(drug_features)}")
     print(f"Loaded response data: {len(drug)} measurements")
     
-    return data, aml_expr, drug
+    return data, inputs_df, drug
 
 
-def create_input_mapping(aml_expr, data):
-    """Create mapping from patient IDs to input vectors."""
+def create_input_mapping(inputs_df, data):
+    """Create mapping from patient IDs to input vectors.
+    
+    Note: inputs_df is ordered identically to data.node_names_dict['input']
+    and can be directly converted into the input tensor.
+    """
     print("Creating input mapping...")
     
     id2x = {}
-    expr_ixs = np.array([i for i, n in enumerate(data.node_names_dict['input']) if "EXPR__" in n])
-    expr_names = np.array(data.node_names_dict['input'])[expr_ixs]
     
-    for i, row in aml_expr.iterrows():
-        x = torch.zeros(len(data.node_names_dict['input']), dtype=torch.float32)
-        x[expr_ixs] = torch.tensor(row[expr_names].values.astype(np.float32), dtype=torch.float32)
-        id2x[row.name] = x  # row.name is the index (patient ID)
+    # Verify that inputs_df columns match the input node names
+    input_nodes = data.node_names_dict['input']
+    
+    # Reorder inputs_df columns to match the order of input nodes
+    inputs_df_ordered = inputs_df[input_nodes]
+    
+    # Convert each row to input tensor directly
+    for sample_id, row in inputs_df_ordered.iterrows():
+        x = torch.tensor(row.values.astype(np.float32), dtype=torch.float32)
+        id2x[sample_id] = x
     
     print(f"Created input mapping for {len(id2x)} patients")
     return id2x
@@ -365,10 +382,10 @@ def main():
     start_time = time.time()
     
     # Load data
-    data, aml_expr, drug = load_data(args.data_dir)
+    data, inputs_df, drug = load_data(args.data_dir)
     
     # Create input mapping
-    id2x = create_input_mapping(aml_expr, data)
+    id2x = create_input_mapping(inputs_df, data)
     
     # Create data loaders
     train_loader, val_loader, test_loader = create_data_loaders(

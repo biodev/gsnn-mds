@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-GSNN Training Script for Drug Response Prediction
+Neural Network Training Script for Drug Response Prediction
 
-This script trains a Graph Structured Neural Network (GSNN) on the biological graph
-constructed by make_graph.py. The model learns to predict drug response based on 
-gene expression profiles and biological pathway knowledge.
+This script trains a standard feed-forward Neural Network on the same data used
+for GSNN training. This serves as a baseline comparison to evaluate the benefit
+of incorporating biological graph structure.
 
 Key features:
 - Configurable hyperparameters via command line arguments
@@ -22,19 +22,18 @@ from pathlib import Path
 import time
 from sklearn.metrics import r2_score
 from scipy.stats import spearmanr
-import warnings
 
-from gsnn.models.GSNN import GSNN
+from hnet.models.HyperNet import HyperNet
+from hnet.train.hnet import EnergyDistanceLoss
+
+from gsnn.models.NN import NN
 from gsnn_mds.data.AMLDataset import AMLDataset
 from gsnn_mds.eval.stratified_drug_eval import stratified_drug_evaluation
-
-# Suppress the PyTorch Geometric scatter_add_ batching rule warning
-warnings.filterwarnings("ignore", message=".*batching rule for aten::scatter_add_.*", category=UserWarning)
 
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description='Train GSNN for drug response prediction')
+    parser = argparse.ArgumentParser(description='Train Neural Network for drug response prediction')
     
     # Data paths
     parser.add_argument('--data-dir', type=str, default='../proc',
@@ -43,35 +42,24 @@ def parse_args():
                        help='Output directory for model and results')
     
     # Model hyperparameters
-    parser.add_argument('--channels', type=int, default=5,
-                       help='Number of channels in GSNN layers')
-    parser.add_argument('--layers', type=int, default=8,
-                       help='Number of GSNN layers')
+    parser.add_argument('--hidden-channels', type=int, default=1024,
+                       help='Number of hidden units per layer')
+    parser.add_argument('--layers', type=int, default=4,
+                       help='Number of hidden layers')
     parser.add_argument('--dropout', type=float, default=0.05,
                        help='Dropout probability')
     parser.add_argument('--nonlin', type=str, default='ELU',
                        choices=['ELU', 'ReLU', 'LeakyReLU', 'GELU'],
                        help='Non-linear activation function')
-    parser.add_argument('--bias', action='store_true', default=False,
-                       help='Use bias in linear layers')
-    parser.add_argument('--node-attn', action='store_true', default=False,
-                       help='Use node attention mechanism')
-    parser.add_argument('--share-layers', action='store_true', default=False,
-                       help='Share weights across GSNN layers')
-    parser.add_argument('--add-function-self-edges', action='store_true', default=False,
-                       help='Add self-edges to function nodes')
     parser.add_argument('--norm', type=str, default='batch',
-                       choices=['batch', 'layer', 'none', 'softmax'],
+                       choices=['batch', 'layer', 'none'],
                        help='Normalization method')
-    parser.add_argument('--init', type=str, default='xavier_normal',
-                       help='Weight initialization method')
-    parser.add_argument('--residual', action='store_true', default=False,
-                       help='Use residual connections')
-    parser.add_argument('--checkpoint', action='store_true', default=False,
-                       help='Use gradient checkpointing to save memory')
+    parser.add_argument('--out-activation', type=str, default='none',
+                       choices=['none', 'sigmoid', 'tanh'],
+                       help='Output activation function (none for linear output)')
     
     # Training hyperparameters
-    parser.add_argument('--lr', type=float, default=1e-3,
+    parser.add_argument('--lr', type=float, default=1e-4,
                        help='Learning rate')
     parser.add_argument('--weight-decay', type=float, default=1e-2,
                        help='Weight decay for regularization')
@@ -93,19 +81,22 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed for reproducibility')
     
+    # Hypernetwork-specific parameters
+    parser.add_argument('--stochastic-channels', type=int, default=64,
+                       help='Number of stochastic channels for HyperNet')
+    parser.add_argument('--hnet-width', type=int, default=256,
+                       help='Width of the hypernetwork')
+    parser.add_argument('--pz', type=str, default='bernoulli',
+                       choices=['bernoulli', 'gaussian'],
+                       help='Prior distribution for latent variable')
+    parser.add_argument('--samples', type=int, default=100,
+                       help='MC samples per forward pass for Energy Distance')
+    
     # Evaluation settings
     parser.add_argument('--save-predictions', action='store_true', default=True,
                        help='Save test predictions and targets')
     parser.add_argument('--stratified-eval', action='store_true', default=True,
                        help='Perform stratified evaluation by drug')
-    
-    # Hypernetwork settings
-    parser.add_argument('--use-hnet', action='store_true', default=False,
-                       help='Use hypernetwork to wrap GSNN')
-    parser.add_argument('--hnet-stochastic-channels', type=int, default=16,
-                       help='Number of stochastic channels in hypernetwork')
-    parser.add_argument('--hnet-width', type=int, default=128,
-                       help='Width of hypernetwork layers')
     
     return parser.parse_args()
 
@@ -124,7 +115,7 @@ def get_nonlin_function(nonlin_name):
 def get_norm_function(norm_name):
     """Get the normalization function."""
     if norm_name == 'batch':
-        return 'batch'
+        return torch.nn.BatchNorm1d
     elif norm_name == 'layer':
         return torch.nn.LayerNorm
     elif norm_name == 'none':
@@ -133,13 +124,25 @@ def get_norm_function(norm_name):
         raise ValueError(f"Unknown normalization: {norm_name}")
 
 
+def get_output_activation(out_activation):
+    """Get the output activation function."""
+    if out_activation == 'sigmoid':
+        return torch.nn.Sigmoid()
+    elif out_activation == 'tanh':
+        return torch.nn.Tanh()
+    elif out_activation == 'none':
+        return None
+    else:
+        raise ValueError(f"Unknown output activation: {out_activation}")
+
+
 def load_data(data_dir):
     """Load the processed data files."""
     print("Loading processed data...")
     
     data_dir = Path(data_dir)
     
-    # Load graph structure
+    # Load graph structure (for node names)
     data = torch.load(data_dir / 'graph.pt', weights_only=False)
     
     # Load inputs dataframe (contains both expression and mutation features)
@@ -219,46 +222,34 @@ def create_data_loaders(id2x, drug, data, batch_size, num_workers):
 
 
 def create_model(data, args, device):
-    """Create and initialize the GSNN model."""
-    print("Creating GSNN model...")
+    """Create and initialize the NN model."""
+    print("Creating NN model...")
     
     # Get activation and normalization functions
     nonlin = get_nonlin_function(args.nonlin)
+    norm = get_norm_function(args.norm)
+    out_activation = get_output_activation(args.out_activation)
     
-    model = GSNN(
-        edge_index_dict=data.edge_index_dict,
-        node_names_dict=data.node_names_dict,
-        channels=args.channels,
+    in_channels = len(data.node_names_dict['input'])
+    
+    model = NN(
+        in_channels=in_channels,
+        hidden_channels=args.hidden_channels,
+        out_channels=1,  # Single output for drug response
         layers=args.layers,
         dropout=args.dropout,
         nonlin=nonlin,
-        bias=args.bias,
-        node_attn=args.node_attn,
-        share_layers=args.share_layers,
-        add_function_self_edges=args.add_function_self_edges,
-        norm=args.norm,
-        norm_first=False,
-        init=args.init,
-        residual=args.residual,
-        checkpoint=args.checkpoint
-    )
-
-    if args.use_hnet: 
-        # NOTE: hnet returns shape (nsamples, nbatch, nchannels)
-        from hnet.models.HyperNet import HyperNet 
-        model = HyperNet(model,
-                         stochastic_channels=args.hnet_stochastic_channels,
-                         width = args.hnet_width) 
-
-    model = model.to(device)
-
+        out=out_activation,
+        norm=norm
+    ).to(device)
+    
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Created model with {num_params:,} trainable parameters")
     
     return model
 
 
-def train_epoch(model, train_loader, optimizer, criterion, device, use_hnet=False):
+def train_epoch(model, train_loader, optimizer, criterion, device, samples):
     """Train the model for one epoch."""
     model.train()
     total_loss = 0.0
@@ -268,24 +259,13 @@ def train_epoch(model, train_loader, optimizer, criterion, device, use_hnet=Fals
     for i, (x, y) in enumerate(train_loader):
         optimizer.zero_grad()
         
-        yhat = model(x.to(device))
-        
-        if use_hnet:
-            # For hypernetworks: yhat shape is (nsamples, nbatch, nchannels)
-            # EnergyDistanceLoss expects this shape
-            loss = criterion(yhat, y.squeeze().to(device))
-            # Take mean over samples for R2 calculation
-            yhat_mean = yhat.mean(0).squeeze()
-        else:
-            # Standard case
-            loss = criterion(yhat.squeeze(), y.squeeze().to(device))
-            yhat_mean = yhat.squeeze()
-        
+        yhat = model(x.to(device), samples=samples)
+        loss = criterion(yhat, y.view(-1, 1).to(device))
         loss.backward()
         optimizer.step()
         
         total_loss += loss.item()
-        r2 = r2_score(y.detach().numpy(), yhat_mean.detach().cpu().numpy())
+        r2 = r2_score(y.detach().numpy(), yhat.mean(0).detach().cpu().numpy())
         total_r2 += r2
         num_batches += 1
         
@@ -297,7 +277,7 @@ def train_epoch(model, train_loader, optimizer, criterion, device, use_hnet=Fals
     return avg_loss, avg_r2
 
 
-def validate_model(model, val_loader, criterion, device, use_hnet=False):
+def validate_model(model, val_loader, criterion, device, samples):
     """Validate the model."""
     model.eval()
     all_y = []
@@ -305,12 +285,7 @@ def validate_model(model, val_loader, criterion, device, use_hnet=False):
     
     with torch.no_grad():
         for x, y in val_loader:
-            yhat = model(x.to(device))
-            
-            if use_hnet:
-                # For hypernetworks: take mean over samples (first dimension)
-                yhat = yhat.mean(0)
-            
+            yhat = model(x.to(device), samples=samples).mean(0)
             all_y.append(y.squeeze().numpy())
             all_yhat.append(yhat.squeeze().detach().cpu().numpy())
     
@@ -324,7 +299,7 @@ def validate_model(model, val_loader, criterion, device, use_hnet=False):
     return mse, r2, spearman_r
 
 
-def test_model(model, test_loader, device, use_hnet=False):
+def test_model(model, test_loader, device, samples):
     """Test the model and return predictions."""
     model.eval()
     all_x = []
@@ -333,12 +308,7 @@ def test_model(model, test_loader, device, use_hnet=False):
     
     with torch.no_grad():
         for x, y in test_loader:
-            yhat = model(x.to(device))
-            
-            if use_hnet:
-                # For hypernetworks: take mean over samples (first dimension)
-                yhat = yhat.mean(0)
-            
+            yhat = model(x.to(device), samples=samples).mean(0)
             all_x.append(x.squeeze().detach().cpu().numpy())
             all_y.append(y.squeeze().detach().numpy())
             all_yhat.append(yhat.squeeze().detach().cpu().numpy())
@@ -356,8 +326,8 @@ def save_results(model, all_x, all_y, all_yhat, data, args, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Save model
-    torch.save(model, output_dir / 'gsnn_model.pt')
-    print(f"Model saved to: {output_dir / 'gsnn_model.pt'}")
+    torch.save(model, output_dir / 'hnet_model.pt')
+    print(f"Model saved to: {output_dir / 'hnet_model.pt'}")
     
     # Save predictions if requested
     if args.save_predictions:
@@ -381,23 +351,16 @@ def save_results(model, all_x, all_y, all_yhat, data, args, output_dir):
 def print_training_summary(args, total_time):
     """Print comprehensive training summary."""
     print("\n" + "="*60)
-    print("GSNN TRAINING SUMMARY")
+    print("NEURAL NETWORK TRAINING SUMMARY")
     print("="*60)
     
     print(f"\n🏗️ MODEL ARCHITECTURE:")
-    print(f"   Channels: {args.channels}")
-    print(f"   Layers: {args.layers}")
+    print(f"   Hidden channels: {args.hidden_channels}")
+    print(f"   Hidden layers: {args.layers}")
     print(f"   Dropout: {args.dropout}")
     print(f"   Activation: {args.nonlin}")
     print(f"   Normalization: {args.norm}")
-    print(f"   Residual connections: {args.residual}")
-    print(f"   Node attention: {args.node_attn}")
-    if args.use_hnet:
-        print(f"   Hypernetwork: Enabled")
-        print(f"   HNet stochastic channels: {args.hnet_stochastic_channels}")
-        print(f"   HNet width: {args.hnet_width}")
-    else:
-        print(f"   Hypernetwork: Disabled")
+    print(f"   Output activation: {args.out_activation}")
     
     print(f"\n⚙️ TRAINING CONFIGURATION:")
     print(f"   Learning rate: {args.lr}")
@@ -415,8 +378,6 @@ def print_training_summary(args, total_time):
 def main():
     """Main training function."""
     args = parse_args()
-    print(args)
-    print() 
     
     # Set random seeds
     torch.manual_seed(args.seed)
@@ -428,7 +389,7 @@ def main():
     else:
         device = torch.device(args.device)
     
-    print("=== GSNN Training ===")
+    print("=== Neural Network Training ===")
     print(f"Device: {device}")
     print(f"Random seed: {args.seed}")
     
@@ -447,15 +408,14 @@ def main():
     
     # Create model
     model = create_model(data, args, device)
+    model = HyperNet(model,
+                     stochastic_channels=args.stochastic_channels,
+                     width=args.hnet_width,
+                     pz=args.pz).to(device)
     
     # Setup training
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-
-    if args.use_hnet:
-        from hnet.train.hnet import EnergyDistanceLoss 
-        criterion = EnergyDistanceLoss() # expects (nsamples, nbatch, nchannels)
-    else: 
-        criterion = torch.nn.MSELoss()
+    criterion = EnergyDistanceLoss()
     
     # Training loop with early stopping
     best_val_loss = float('inf')
@@ -465,11 +425,10 @@ def main():
     print("\nStarting training...")
     for epoch in range(args.epochs):
         # Train
-        train_loss, train_r2 = train_epoch(model, train_loader, optimizer, criterion, device, args.use_hnet)
+        train_loss, train_r2 = train_epoch(model, train_loader, optimizer, criterion, device, args.samples)
         
-        # Validate (always use MSE for validation loss for early stopping)
-        val_criterion = torch.nn.MSELoss() if args.use_hnet else criterion
-        val_loss, val_r2, val_spearman = validate_model(model, val_loader, val_criterion, device, args.use_hnet)
+        # Validate
+        val_loss, val_r2, val_spearman = validate_model(model, val_loader, criterion, device, args.samples)
         
         print(f'Epoch {epoch+1}/{args.epochs} | '
               f'Train Loss: {train_loss:.4f} | Train R2: {train_r2:.4f} | '
@@ -495,7 +454,7 @@ def main():
     
     # Test model
     print("\nEvaluating on test set...")
-    all_x, all_y, all_yhat = test_model(model, test_loader, device, args.use_hnet)
+    all_x, all_y, all_yhat = test_model(model, test_loader, device, args.samples)
     
     # Calculate test metrics
     test_mse = np.mean((all_y - all_yhat) ** 2)

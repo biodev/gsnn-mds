@@ -2,39 +2,40 @@ configfile: "./config/config.yaml"
 
 # Get config name for output directory structure
 CONFIG_NAME = config.get("config_name", "default")
+OUTPUT_DIR = config.get("global", {}).get("output_dir", "exp")
 
 # Define the final targets
 rule all:
     input:
         # Graph construction outputs
-        f"exp/{CONFIG_NAME}/graph/graph.pt",
-        f"exp/{CONFIG_NAME}/graph/aml_expr.csv", 
-        f"exp/{CONFIG_NAME}/graph/mds_expr.csv",
-        f"exp/{CONFIG_NAME}/graph/resp.csv",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/graph.pt",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/aml_expr.csv", 
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/mds_expr.csv",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/resp.csv",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/inputs.csv",
         # Neural network training outputs
-        f"exp/{CONFIG_NAME}/nn/nn_model.pt",
-        f"exp/{CONFIG_NAME}/nn/predictions.csv",
-        f"exp/{CONFIG_NAME}/nn/stratified_results.csv",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/nn/nn_model.pt",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/nn/predictions.csv",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/nn/stratified_results.csv",
         # GSNN training outputs  
-        f"exp/{CONFIG_NAME}/gsnn/gsnn_model.pt",
-        f"exp/{CONFIG_NAME}/gsnn/predictions.csv",
-        f"exp/{CONFIG_NAME}/gsnn/stratified_results.csv"
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/gsnn/gsnn_model.pt",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/gsnn/predictions.csv",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/gsnn/stratified_results.csv",
+        # Hypernetwork (HNet) training outputs
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/hnet/hnet_model.pt",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/hnet/predictions.csv",
+        f"{OUTPUT_DIR}/{CONFIG_NAME}/hnet/stratified_results.csv"
 
 # Rule to construct the biological graph and process data
 rule make_graph:
-    input:
-        drug_data=config["data"]["drug_data"],
-        clinical_data=config["data"]["clinical_data"],
-        targetome_data=config["data"]["targetome_data"],
-        drug_meta=config["data"]["drug_meta"],
-        reactome_data=config["data"]["reactome_data"],
-        expression_data=config["data"]["expression_data"]
     output:
-        graph=f"exp/{CONFIG_NAME}/graph/graph.pt",
-        expr=f"exp/{CONFIG_NAME}/graph/aml_expr.csv",
-        mds_expr=f"exp/{CONFIG_NAME}/graph/mds_expr.csv",
-        resp=f"exp/{CONFIG_NAME}/graph/resp.csv"
+        graph=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/graph.pt",
+        expr=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/aml_expr.csv",
+        mds_expr=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/mds_expr.csv",
+        resp=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/resp.csv",
+        inputs=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/inputs.csv"
     params:
+        data_root=config["data"]["data_root"],
         resp_norm=config["graph"]["resp_norm"],
         graph_depth=config["graph"]["graph_depth"],
         expr_n_top_genes=config["graph"]["expr_n_top_genes"],
@@ -46,12 +47,13 @@ rule make_graph:
         max_assay_value=config["graph"]["max_assay_value"],
         train_frac=config["graph"]["train_frac"],
         seed=config["global"]["seed"],
-        output_dir=f"exp/{CONFIG_NAME}/graph",
+        output_dir=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph",
         expr_n_top_genes_flag=f"--expr-n-top-genes {config['graph']['expr_n_top_genes']}" if config["graph"]["expr_n_top_genes"] is not None else "",
         expr_var_threshold_flag=f"--expr-var-threshold {config['graph']['expr_var_threshold']}" if config["graph"]["expr_var_threshold"] is not None else "",
         expr_normalizer_save_path_flag=f"--expr-normalizer-save-path {config['graph']['expr_normalizer_save_path']}" if config["graph"]["expr_normalizer_save_path"] is not None else "",
-        include_mirna=config["graph"]["include_mirna"],
-        include_extra=config["graph"]["include_extra"]
+        include_mirna=str(config["graph"]["include_mirna"]).lower(),
+        include_extra=str(config["graph"]["include_extra"]).lower(),
+        include_mut=str(config["graph"]["include_mut"]).lower()
     threads: config["global"]["threads"]
     resources:
         mem_mb=config["resources"]["make_graph"]["memory"],
@@ -60,38 +62,34 @@ rule make_graph:
         """
         mkdir -p {params.output_dir}
         python scripts/make_graph.py \
-            --drug-data {input.drug_data} \
-            --clinical-data {input.clinical_data} \
-            --targetome-data {input.targetome_data} \
-            --drug-meta {input.drug_meta} \
-            --reactome-data {input.reactome_data} \
-            --expression-data {input.expression_data} \
+            --data-root {params.data_root} \
             --resp-norm {params.resp_norm} \
             --graph-depth {params.graph_depth} \
             --expr-norm {params.expr_norm} \
             --expr-clip-quantiles {params.expr_clip_quantiles[0]} {params.expr_clip_quantiles[1]} \
             --min-pathway-size {params.min_pathway_size} \
             --max-assay-value {params.max_assay_value} \
-            --include-mirna {params.include_mirna} \
-            --include-extra {params.include_extra} \
             --train-frac {params.train_frac} \
             --output-dir {params.output_dir} \
             --seed {params.seed} \
             {params.expr_n_top_genes_flag} \
             {params.expr_var_threshold_flag} \
-            {params.expr_normalizer_save_path_flag}
+            {params.expr_normalizer_save_path_flag} \
+            --include-mirna {params.include_mirna} \
+            --include-extra {params.include_extra} \
+            --include-mut {params.include_mut}
         """
 
 # Rule to train standard Neural Network
 rule train_nn:
     input:
-        graph=f"exp/{CONFIG_NAME}/graph/graph.pt",
-        expr=f"exp/{CONFIG_NAME}/graph/aml_expr.csv", 
-        resp=f"exp/{CONFIG_NAME}/graph/resp.csv"
+        graph=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/graph.pt",
+        inputs=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/inputs.csv", 
+        resp=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/resp.csv"
     output:
-        model=f"exp/{CONFIG_NAME}/nn/nn_model.pt",
-        predictions=f"exp/{CONFIG_NAME}/nn/predictions.csv",
-        stratified=f"exp/{CONFIG_NAME}/nn/stratified_results.csv"
+        model=f"{OUTPUT_DIR}/{CONFIG_NAME}/nn/nn_model.pt",
+        predictions=f"{OUTPUT_DIR}/{CONFIG_NAME}/nn/predictions.csv",
+        stratified=f"{OUTPUT_DIR}/{CONFIG_NAME}/nn/stratified_results.csv"
     params:
         hidden_channels=config["nn"]["hidden_channels"],
         layers=config["nn"]["layers"],
@@ -108,8 +106,8 @@ rule train_nn:
         num_workers=config["global"]["num_workers"],
         device=config["global"]["device"],
         seed=config["global"]["seed"],
-        data_dir=f"exp/{CONFIG_NAME}/graph",
-        output_dir=f"exp/{CONFIG_NAME}/nn"
+        data_dir=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph",
+        output_dir=f"{OUTPUT_DIR}/{CONFIG_NAME}/nn"
     threads: config["global"]["threads"]
     resources:
         mem_mb=config["resources"]["train_nn"]["memory"],
@@ -140,16 +138,82 @@ rule train_nn:
             --stratified-eval
         """
 
+# Rule to train Hypernetwork Neural Network (HNet)
+rule train_hnet:
+    input:
+        graph=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/graph.pt",
+        inputs=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/inputs.csv",
+        resp=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/resp.csv"
+    output:
+        model=f"{OUTPUT_DIR}/{CONFIG_NAME}/hnet/hnet_model.pt",
+        predictions=f"{OUTPUT_DIR}/{CONFIG_NAME}/hnet/predictions.csv",
+        stratified=f"{OUTPUT_DIR}/{CONFIG_NAME}/hnet/stratified_results.csv"
+    params:
+        hidden_channels=config["hnet"]["hidden_channels"],
+        layers=config["hnet"]["layers"],
+        dropout=config["hnet"]["dropout"],
+        nonlin=config["hnet"]["nonlin"],
+        norm=config["hnet"]["norm"],
+        out_activation=config["hnet"]["out_activation"],
+        lr=config["hnet"]["lr"],
+        weight_decay=config["hnet"]["weight_decay"],
+        batch_size=config["hnet"]["batch_size"],
+        epochs=config["hnet"]["epochs"],
+        patience=config["hnet"]["patience"],
+        min_delta=config["hnet"]["min_delta"],
+        stochastic_channels=config["hnet"]["stochastic_channels"],
+        hnet_width=config["hnet"]["hnet_width"],
+        pz=config["hnet"]["pz"],
+        samples=config["hnet"]["samples"],
+        num_workers=config["global"]["num_workers"],
+        device=config["global"]["device"],
+        seed=config["global"]["seed"],
+        data_dir=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph",
+        output_dir=f"{OUTPUT_DIR}/{CONFIG_NAME}/hnet"
+    threads: config["global"]["threads"]
+    resources:
+        mem_mb=config["resources"]["train_hnet"]["memory"],
+        runtime=config["resources"]["train_hnet"]["runtime"],
+        gpu=config["resources"]["train_hnet"]["gpu"]
+    shell:
+        """
+        mkdir -p {params.output_dir}
+        python scripts/train_hnet.py \
+            --data-dir {params.data_dir} \
+            --output-dir {params.output_dir} \
+            --hidden-channels {params.hidden_channels} \
+            --layers {params.layers} \
+            --dropout {params.dropout} \
+            --nonlin {params.nonlin} \
+            --norm {params.norm} \
+            --out-activation {params.out_activation} \
+            --lr {params.lr} \
+            --weight-decay {params.weight_decay} \
+            --batch-size {params.batch_size} \
+            --epochs {params.epochs} \
+            --patience {params.patience} \
+            --min-delta {params.min_delta} \
+            --stochastic-channels {params.stochastic_channels} \
+            --hnet-width {params.hnet_width} \
+            --pz {params.pz} \
+            --samples {params.samples} \
+            --num-workers {params.num_workers} \
+            --device {params.device} \
+            --seed {params.seed} \
+            --save-predictions \
+            --stratified-eval
+        """
+
 # Rule to train Graph Structured Neural Network (GSNN)
 rule train_gsnn:
     input:
-        graph=f"exp/{CONFIG_NAME}/graph/graph.pt",
-        expr=f"exp/{CONFIG_NAME}/graph/aml_expr.csv",
-        resp=f"exp/{CONFIG_NAME}/graph/resp.csv"
+        graph=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/graph.pt",
+        inputs=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/inputs.csv",
+        resp=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph/resp.csv"
     output:
-        model=f"exp/{CONFIG_NAME}/gsnn/gsnn_model.pt",
-        predictions=f"exp/{CONFIG_NAME}/gsnn/predictions.csv", 
-        stratified=f"exp/{CONFIG_NAME}/gsnn/stratified_results.csv"
+        model=f"{OUTPUT_DIR}/{CONFIG_NAME}/gsnn/gsnn_model.pt",
+        predictions=f"{OUTPUT_DIR}/{CONFIG_NAME}/gsnn/predictions.csv", 
+        stratified=f"{OUTPUT_DIR}/{CONFIG_NAME}/gsnn/stratified_results.csv"
     params:
         channels=config["gsnn"]["channels"],
         layers=config["gsnn"]["layers"],
@@ -166,14 +230,17 @@ rule train_gsnn:
         num_workers=config["global"]["num_workers"],
         device=config["global"]["device"],
         seed=config["global"]["seed"],
-        data_dir=f"exp/{CONFIG_NAME}/graph",
-        output_dir=f"exp/{CONFIG_NAME}/gsnn",
+        data_dir=f"{OUTPUT_DIR}/{CONFIG_NAME}/graph",
+        output_dir=f"{OUTPUT_DIR}/{CONFIG_NAME}/gsnn",
         bias_flag="--bias" if config["gsnn"]["bias"] else "",
         node_attn_flag="--node-attn" if config["gsnn"]["node_attn"] else "",
-        share_layers_flag="--share-layers" if not config["gsnn"]["share_layers"] else "",
+        share_layers_flag="--share-layers" if config["gsnn"]["share_layers"] else "",
         add_function_self_edges_flag="--add-function-self-edges" if config["gsnn"]["add_function_self_edges"] else "",
         residual_flag="--residual" if config["gsnn"]["residual"] else "",
-        checkpoint_flag="--checkpoint" if config["gsnn"]["checkpoint"] else ""
+        checkpoint_flag="--checkpoint" if config["gsnn"]["checkpoint"] else "",
+        use_hnet_flag="--use-hnet" if config["gsnn"]["use_hnet"] else "",
+        hnet_stochastic_channels=config["gsnn"]["hnet_stochastic_channels"],
+        hnet_width=config["gsnn"]["hnet_width"]
     threads: config["global"]["threads"]
     resources:
         mem_mb=config["resources"]["train_gsnn"]["memory"],
@@ -207,19 +274,24 @@ rule train_gsnn:
             {params.share_layers_flag} \
             {params.add_function_self_edges_flag} \
             {params.residual_flag} \
-            {params.checkpoint_flag}
+            {params.checkpoint_flag} \
+            {params.use_hnet_flag} \
+            --hnet-stochastic-channels {params.hnet_stochastic_channels} \
+            --hnet-width {params.hnet_width}
         """
 
 # Helper rule to create necessary directories
 rule create_dirs:
     output:
-        exp_dir=directory(f"exp/{CONFIG_NAME}"),
-        graph_dir=directory(f"exp/{CONFIG_NAME}/graph"),
-        nn_dir=directory(f"exp/{CONFIG_NAME}/nn"),
-        gsnn_dir=directory(f"exp/{CONFIG_NAME}/gsnn")
+        exp_dir=directory(f"{OUTPUT_DIR}/{CONFIG_NAME}"),
+        graph_dir=directory(f"{OUTPUT_DIR}/{CONFIG_NAME}/graph"),
+        nn_dir=directory(f"{OUTPUT_DIR}/{CONFIG_NAME}/nn"),
+        hnet_dir=directory(f"{OUTPUT_DIR}/{CONFIG_NAME}/hnet"),
+        gsnn_dir=directory(f"{OUTPUT_DIR}/{CONFIG_NAME}/gsnn")
     shell:
         """
-        mkdir -p exp/{CONFIG_NAME}/graph
-        mkdir -p exp/{CONFIG_NAME}/nn
-        mkdir -p exp/{CONFIG_NAME}/gsnn
+        mkdir -p {OUTPUT_DIR}/{CONFIG_NAME}/graph
+        mkdir -p {OUTPUT_DIR}/{CONFIG_NAME}/nn
+        mkdir -p {OUTPUT_DIR}/{CONFIG_NAME}/hnet
+        mkdir -p {OUTPUT_DIR}/{CONFIG_NAME}/gsnn
         """ 

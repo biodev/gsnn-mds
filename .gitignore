@@ -2,6 +2,8 @@
 /workflow/exp/ 
 /results/ 
 workflow/.snakemake/
+*mds_predictions*.csv 
+
 
 
 # Byte-compiled / optimized / DLL files

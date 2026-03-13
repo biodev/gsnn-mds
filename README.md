@@ -36,10 +36,10 @@ This pipeline implements a comprehensive drug response prediction workflow that:
 ```
 Input Data
     ↓
-Graph Construction (make_graph) → exp/{config_name}/graph/
+Graph Construction (make_graph) → {output_dir}/{config_name}/graph/
     ↓
-    ├── Neural Network Training (train_nn) → exp/{config_name}/nn/
-    └── GSNN Training (train_gsnn) → exp/{config_name}/gsnn/
+    ├── Neural Network Training (train_nn) → {output_dir}/{config_name}/nn/
+    └── GSNN Training (train_gsnn) → {output_dir}/{config_name}/gsnn/
 ```
 
 ## Installation & Requirements

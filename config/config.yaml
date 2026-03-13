@@ -81,6 +81,11 @@ gsnn:
   epochs: 100
   patience: 10
   min_delta: 0.0001
+  
+  # Hypernetwork parameters
+  use_hnet: false
+  hnet_stochastic_channels: 16
+  hnet_width: 128
 
 # Resource allocation
 resources:
