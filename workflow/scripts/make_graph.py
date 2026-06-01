@@ -183,7 +183,7 @@ def main():
         # Process MDS expression data using the same normalizer
         mds_expr_path = os.path.join(args.data_root, '20241219_WTS_Data_Proj805.csv')
         mds_expr = process_mds_expression_data(
-            mds_expr_path, normalizer, rnaspace
+            mds_expr_path, normalizer
         )
 
         expr = pd.concat([aml_expr, mds_expr])

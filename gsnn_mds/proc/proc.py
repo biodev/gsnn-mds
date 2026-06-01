@@ -268,6 +268,10 @@ def process_expression_data(expr_path, gene_symbols, expr_norm,
     aml_expr = aml_expr.dropna()
     # Use max to resolve duplicates (usually a zero and a non-zero)
     aml_expr = aml_expr.groupby(['id', 'gene_name', 'id_type']).max().reset_index()
+
+    if gene_symbols is None: 
+        print("No gene symbols provided - using all genes from expression data")
+        gene_symbols = aml_expr.gene_name.unique().tolist()
     
     # Filter for genes in our mapping
     aml_expr = aml_expr[
@@ -302,7 +306,7 @@ def process_expression_data(expr_path, gene_symbols, expr_norm,
     return aml_expr, normalizer
 
 
-def process_mds_expression_data(mds_expr_path, normalizer, gene_symbols):
+def process_mds_expression_data(mds_expr_path, normalizer):
     """Load and process MDS expression data using fitted normalizer."""
     print("Loading MDS expression data...")
     
@@ -317,8 +321,9 @@ def process_mds_expression_data(mds_expr_path, normalizer, gene_symbols):
     # Use max to resolve duplicates (consistent with AML processing)
     mds_expr = mds_expr.groupby(['id', 'gene_name', 'id_type']).max().reset_index()
     
+    # NOTE: this is taken care of in the Normalizer.transform() method
     # Filter for genes in our UniProt mapping
-    mds_expr = mds_expr[mds_expr.gene_name.isin(gene_symbols)]
+    #mds_expr = mds_expr[mds_expr.gene_name.isin(gene_symbols)]
     
     # Convert to wide format
     mds_expr = mds_expr.pivot(index='id', columns='gene_name', values='FPKM')
